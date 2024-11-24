@@ -4,7 +4,6 @@ import numpy as np
 from riix.core.base import OnlineRatingSystem
 from riix.utils.math_utils import sigmoid, sigmoid_scalar
 
-
 class Elo(OnlineRatingSystem):
     """
     Implements the original Elo rating system.
@@ -19,7 +18,7 @@ class Elo(OnlineRatingSystem):
         k: float = 32.0,
         alpha: float = math.log(10.0) / 400.0,
         update_method: str = 'online',
-        dtype=np.float64,
+        dtype = np.float64,
     ):
         """
         Initializes the Elo rating system with the given parameters.
