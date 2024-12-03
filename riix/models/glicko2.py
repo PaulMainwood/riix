@@ -72,7 +72,7 @@ class Glicko2(OnlineRatingSystem):
         combined_phi = self.g_vector(np.sqrt(np.square(phi_1) + np.square(phi_2)))
         # but this seems to work better...
         combined_phi = self.g_vector(phi_1 + phi_2)
-        #probs = sigmoid(combined_phi * mu_diff)
+        probs = sigmoid(combined_phi * mu_diff)
         return probs
 
     def get_pre_match_ratings(self, matchups: np.ndarray, **kwargs):

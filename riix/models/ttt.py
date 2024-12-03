@@ -1,4 +1,5 @@
-"""a template to copy and paste when implementing a new rating system"""
+"A wrapper aroud trueskill through time."
+
 import numpy as np
 from riix.core.base_offline import OfflineRatingSystem
 import trueskill_through_time as ttt
@@ -29,7 +30,6 @@ class TrueSkillThroughTime(OfflineRatingSystem):
             update_method (str, optional): Method used to update ratings ('online' or other methods if implemented). Defaults to 'batched' and at present 'online' is not implemented
             dtype: The data type for internal numpy computations. Defaults to np.float64.
 
-        Initializes an WHR rating system with customizable settings for w2 value (the "twitchiness" of the rating).
         """
         self.beta = beta
         self.mu = mu
@@ -38,38 +38,28 @@ class TrueSkillThroughTime(OfflineRatingSystem):
         self.iterations = iterations
         
         a = TrueSkillThroughTime._riix_to_ttt(dataset)
-        self.ttt_history = ttt.History(composition = a[0], times = a[1], sigma = 1.6, gamma = 0.036)
+        self.ttt_history = ttt.History(composition = a[0], times = a[1], beta = beta)
 
 
     def predict(self, matchups: np.ndarray, time_step: int = None, set_cache: bool = False):
-        """
-        Generates a numpy array for predictions for a series of matchups between competitors in riix format.
-        """
-        probabilities = np.zeros(len(matchups))
-    
-        for i, (player1, player2) in enumerate(matchups):
-            # Convert IDs to strings since the function expects strings
-            p1_prob, _ = self.whr.probability_future_match(str(player1), str(player2))
-            # Store only the first player's probability
-            probabilities[i] = p1_prob
-        
-        return probabilities
+        return ttt.predict(self.ttt_history, 
+                        matchups[:, 0],  # All player1s
+                        matchups[:, 1],  # All player2s 
+                        np.full(len(matchups), time_step))  # Array of times
 
     def get_pre_match_ratings(self, matchups: np.ndarray, **kwargs):
         return self.ratings[matchups]
 
     def add_games(self, dataset, use_cache=False, **kwargs):
         """
-        Performs a batched addition based on a series of matchups and their outcomes with their associated time-steps.
-
+        Adds new games to the existing TTT model.
+        
         Parameters:
-            matchups (np.ndarray): Array of matchups, where each matchup is represented by a pair of player indices
-            outcomes (np.ndarray): Array of outcomes corresponding to each matchup represented as win (1), loss (0), or draw (0.5).
-            time_step (int): The current time step or period of the rating update, used to adjust ratings over time.
-            use_cache (bool, optional): Whether to use values cached during a prior call to predict() to speed up calculations. Defaults to False.
+            dataset: riix format dataset containing new matchups and timestamps
+            use_cache: unused, kept for compatibility with base class
         """
         fixtures, timestamps = TrueSkillThroughTime._riix_to_ttt(dataset)
-        self.ttt_history.add_games(fixtures, [], timestamps, [])
+        self.ttt_history.add_games(fixtures, [], timestamps)
 
     def iterate(self, n = 10):
         self.ttt_history.convergence(epsilon = self.epsilon, iterations = n)
@@ -77,11 +67,12 @@ class TrueSkillThroughTime(OfflineRatingSystem):
     @staticmethod
     def _riix_to_ttt(dataset):
         """
-        Converts a riix dataset of games to the format used by the ttt package
+        Converts a riix dataset of games to the format used by the ttt package.
+        Ensures player IDs are regular Python integers, not numpy integers.
         """
-        matchups = [[[x], [y]] for x, y in dataset.matchups]
+        matchups = [[[int(x)], [int(y)]] for x, y in dataset.matchups]
         timestamps = dataset.time_steps.tolist()
-    
+
         return (matchups, timestamps)
 
     
@@ -112,11 +103,11 @@ class TrueSkillThroughTime(OfflineRatingSystem):
         
         if not return_pre_match_probs:
             # Simplest case - just add all games and iterate
-            self.ttt_history.add_games(fixtures, [], timestamps, [])
+            self.ttt_history.add_games(fixtures, times = timestamps)
             self.iterate(iterations)
             return None
             
-        # For pre-match probabilities, we need to process day by day
+        # For pre-match probabilities, process day by day
         probs = []
         unique_times = sorted(set(timestamps))
         
@@ -126,15 +117,17 @@ class TrueSkillThroughTime(OfflineRatingSystem):
             day_fixtures = [fixtures[i] for i in day_indices]
             day_timestamps = [timestamps[i] for i in day_indices]
             
-            # Get predictions for this day's matches using current ratings
-            for fixture in day_fixtures:
-                player1, player2 = fixture[0][0], fixture[1][0]  # Extract player IDs
-                # Get probability for first player winning
-                p1_prob = self.predict_matchup(player1, player2, time)
-                probs.append(p1_prob)
-                
+            # Convert day's fixtures to matchups format for prediction
+            day_matchups = np.array([[fixture[0][0], fixture[1][0]] for fixture in day_fixtures])
+            
+            # Get predictions for all of this day's matches at once
+            day_probs = self.predict(day_matchups, time_step=time)
+            probs.extend(day_probs)
+            
             # Add this day's matches and update ratings
-            self.ttt_history.add_games(day_fixtures, [], day_timestamps, [])
+            self.ttt_history.add_games(day_fixtures, times = day_timestamps)
+            #The idea to iterate just on the matches doens't seem good.
+            #self.ttt_history.iterate_on_matches(day_fixtures, day_timestamps, iterations = 5)
             self.iterate(iterations)
-        
+    
         return np.array(probs)
