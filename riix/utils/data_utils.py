@@ -18,6 +18,7 @@ class MatchupDataset:
         datetime_col: str = None,
         time_step_col: str = None,
         rating_period: str = '1W',
+        category_col: str = None,
         verbose: bool = True,
     ):
         if len(competitor_cols) != 2:
@@ -40,6 +41,11 @@ class MatchupDataset:
             first_time = seconds_since_epoch[0]
             seconds_since_first_time = seconds_since_epoch - first_time
             self.time_steps = seconds_since_first_time // rating_period_duration_in_seconds
+        
+        if category_col:
+            self.category = df[category_col].to_numpy()
+        else:
+            self.category = np.array([])
 
         self.time_steps = self.time_steps.astype(np.int32)
         self.process_time_steps()
@@ -75,9 +81,6 @@ class MatchupDataset:
             .select(['index1', 'index2'])
         )
         self.matchups = np.ascontiguousarray(matchups_df.collect().to_numpy())
-
-
-
         self.outcomes = df[outcome_col].to_numpy()
 
         if verbose:
@@ -85,6 +88,7 @@ class MatchupDataset:
             print(f'{self.matchups.shape[0]} matchups')
             print(f'{len(self.competitors)} unique competitors')
             print(f'{self.unique_time_steps.max() + 1} rating periods of length {rating_period}')
+            print(f'{len(np.unique(self.category))} categories')
 
     def process_time_steps(self):
         self.unique_time_steps, unique_time_step_indices = np.unique(self.time_steps, return_index=True)
@@ -110,6 +114,7 @@ class MatchupDataset:
                 matchups=self.matchups[key, :],
                 outcomes=self.outcomes[key],
                 competitors=self.competitors,
+                category=self.category[key] if len(self.category) > 0 else np.array([])
             )
             slice_dataset.competitor_to_idx = self.competitor_to_idx
             return slice_dataset
@@ -117,7 +122,7 @@ class MatchupDataset:
             raise ValueError('you can only index MatchupDataset with a slice')
 
     @classmethod
-    def init_from_arrays(cls, time_steps, matchups, outcomes, competitors):
+    def init_from_arrays(cls, time_steps, matchups, outcomes, competitors, category=None):
         dataset = cls.__new__(cls)
         dataset.time_steps = time_steps
         dataset.process_time_steps()
@@ -125,6 +130,7 @@ class MatchupDataset:
         dataset.matchups = matchups
         dataset.competitors = competitors
         dataset.num_competitors = len(competitors)
+        dataset.category = category if category is not None else np.array([])
         return dataset
 
     @classmethod

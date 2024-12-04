@@ -3,6 +3,7 @@
 import numpy as np
 from riix.core.base_offline import OfflineRatingSystem
 import trueskill_through_time as ttt
+import polars as pl
 
 class TrueSkillThroughTime(OfflineRatingSystem):
     """
@@ -15,15 +16,13 @@ class TrueSkillThroughTime(OfflineRatingSystem):
 
     def __init__(
         self,
-        dataset, 
         beta = 1.0,
         mu = 0.0,
         p_draw = 0.0,
         epsilon = 0.01,
-        iterations = 30
     ):
         """
-        Initializes the TTT system with the given parameters.
+        Initializes an empty TTT system with the given parameters.
 
         Parameters:
             BETA: The beta variable, which controls the rate at which ratings change. Defaults to 1.0
@@ -35,11 +34,8 @@ class TrueSkillThroughTime(OfflineRatingSystem):
         self.mu = mu
         self.p_draw = p_draw
         self.epsilon = epsilon
-        self.iterations = iterations
         
-        a = TrueSkillThroughTime._riix_to_ttt(dataset)
-        self.ttt_history = ttt.History(composition = a[0], times = a[1], beta = beta)
-
+        self.ttt_history = ttt.History(composition = [], times = np.array([]), beta = beta)
 
     def predict(self, matchups: np.ndarray, time_step: int = None, set_cache: bool = False):
         return ttt.predict(self.ttt_history, 
@@ -60,6 +56,34 @@ class TrueSkillThroughTime(OfflineRatingSystem):
         """
         fixtures, timestamps = TrueSkillThroughTime._riix_to_ttt(dataset)
         self.ttt_history.add_games(fixtures, [], timestamps)
+
+    def add_team_games(self, df, use_cache=False, **kwargs):
+        """
+        Adds new games to the existing TTT model.
+        
+        Parameters:
+            df: polars dataframe containing games
+            use_cache: unused, kept for compatibility with base class
+        """
+
+        # Create surface mapping
+        surface_map = {0: 'hard', 1: 'clay', 2: 'grass'}
+        
+        # Convert dates to timestamps (days since epoch)
+        timestamps = df['Date'].cast(pl.Date).dt.timestamp_days().to_list()
+        
+        # Create matchups with surface-specific players
+        matchups = []
+        for row in df.iter_rows():
+            p1, p2, surface = int(row[0]), int(row[1]), int(row[4])
+            surface_name = surface_map[surface]
+            
+            # Create team format: [[base_player, surface_player], [base_player, surface_player]]
+            team1 = [[p1, f"{p1}-{surface_name}"]]
+            team2 = [[p2, f"{p2}-{surface_name}"]]
+            matchups.append([team1, team2])
+        self.ttt_history.add_games(matchups, [], timestamps)
+        
 
     def iterate(self, n = 10):
         self.ttt_history.convergence(epsilon = self.epsilon, iterations = n)
