@@ -65,14 +65,23 @@ class TrueSkillThroughTime(OfflineRatingSystem):
         self.ttt_history.convergence(epsilon = self.epsilon, iterations = n)
 
     @staticmethod
-    def _riix_to_ttt(dataset):
+    def _riix_to_ttt(dataset, surface = False):
         """
         Converts a riix dataset of games to the format used by the ttt package.
         Ensures player IDs are regular Python integers, not numpy integers.
         """
-        matchups = [[[int(x)], [int(y)]] for x, y in dataset.matchups]
-        timestamps = dataset.time_steps.tolist()
-
+        if not surface:
+            matchups = [[[int(x)], [int(y)]] for x, y in dataset.matchups]
+            timestamps = dataset.time_steps.tolist()
+            return (matchups, timestamps)
+        if surface:
+            matchups = []
+            for (p1, p2), surface in zip(dataset.matchups, surface):
+                # Each team has base player and surface-specific version
+                team1 = [int(p1), f"{int(p1)}-{surface}"]  # e.g., [23, "23-clay"]
+                team2 = [int(p2), f"{int(p2)}-{surface}"]
+                matchups.append([team1, team2])
+            timestamps = dataset.time_steps.tolist()
         return (matchups, timestamps)
 
     
